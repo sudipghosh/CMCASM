@@ -1,0 +1,731 @@
+/* GaN HEMT Model Version 1.0.0alpha updated 12-02-2013
+Authors: Sourabh Khandelwal, Tor A Fjeldly, Yogesh Singh Chauhan, Sudip Ghosh, 
+Contact: sourabh@berkeley.edu, sourabhkhandelwal@gmail.com
+*/
+`include "discipline.h"
+`include "constants.h"
+
+
+//Numerical and Physical Constants
+`define DOS 3.24e17 //Density of states of GaN
+`define KB 8.636e-5	//Boltzman Constant
+`define EPSILON 10.66e-11 //Dielectric Permitivity of AlGaN layer 
+`define q 1.6e-19  //Electron Charge
+`define gamma0 2.12e-12		//Constant from Scrodinger-Poisson Solution
+`define gamma1 3.73e-12		//Constant from Scrodinger-Poisson Solution
+`define ep_psi 0.1		//Smoothning Constant
+`define Oneby3 0.33333333333333333
+`define EXPL_THRESHOLD 80.0
+`define MAX_EXPL 5.540622384e+34
+`define MIN_EXPL 1.804851387e-35
+// Not all Verilog-A compilers are able to properly collapse
+// internal nodes  by shorting branches. To ensure minimal node 
+// count, comment out the following lines:
+//`define __RDSMOD__
+//`define __FPMOD__
+`define __RGATEMOD__
+
+
+
+
+
+
+module hemtsp(d,g,s,dt);
+inout d,g,s,dt;
+electrical d,g,s,dt,trap1;
+electrical di, si;
+// Field Plate Node
+`ifdef __FPMOD__
+	electrical dfp;
+`endif
+
+`ifdef __FPMOD__
+	`define IntrinsicDrainfp dfp
+`else
+	`define IntrinsicDrainfp di	
+`endif
+
+// Node definitions
+`define IntrinsicDrain di
+`define IntrinsicSource si
+
+
+`ifdef __RGATEMOD__
+	electrical gi;
+`endif
+
+`ifdef __RGATEMOD__
+	`define IntrinsicGate gi
+`else
+	`define IntrinsicGate g
+`endif
+
+
+// Clamped exponential function
+analog function real lexp;
+	input x;
+	real x;
+	begin
+		if(x > `EXPL_THRESHOLD) begin
+			lexp = `MAX_EXPL * (1.0+(x)-`EXPL_THRESHOLD);	
+		end else if(x < -`EXPL_THRESHOLD) begin
+			lexp = `MIN_EXPL;	
+		end else begin	
+			lexp = exp(x);
+		end
+	end
+endfunction
+
+
+branch (dt) rth;
+branch (dt) ith;
+branch (dt) cth;
+branch (trap1) rtrap1 ;
+//branch (trap1) ctrap1 ;
+branch (trap1) itrap1 ;
+
+parameter real TEMP = 300.0;				//Temperature variable added to support Mike's ICCAP file
+parameter real TNOM = 300.0;				//Temperature
+parameter real TBAR = 2.5e-8 from [0.1e-9:inf);		// Barrier layer thickness
+parameter real L = 0.25e-6 from [20e-9:inf);  		//CHannel Length
+parameter real W = 200.0e-6 from [20e-9:inf);		//CHannel Width
+parameter integer NF = 1 from [1.0:inf);		//Number of fingers
+parameter real VOFF = -2.0 from [-10.0:5];		// Cut-off voltage
+parameter real U0 = 170.0e-3;				//Low field mobility
+parameter real UA = 0.0e-9 from [0.0:inf);		// Mobility Degradation coefficient first order
+parameter real UB = 0.0e-18 from [0.0:inf);		// Mobility Degradation coefficient second order
+parameter real VSAT = 1.9e5 from [1.0e3:inf);		//Saturation Velocity
+parameter real DELTA = 2.0 from [2.0:inf);		// Exponent for Vdeff
+parameter real AT = -1.0e-3 from (-inf:inf);		//Temperature Dependence for saturation velocity
+parameter real UTE = -1.0 from [-10.0:0];		// Temperature dependence of mobility
+parameter real LAMBDA = 0.0 from [0.0:inf);		//Channel Length Modulation Coefficient
+parameter real ETA0 = 0.0e-3 from [0.0:inf);		//DIBL Parameter
+parameter real VDSCALE = 10.0 from (0.0:inf);		//DIBL Scaling VDS
+parameter real KT1 = 0.0e-9 from [0.0:inf);		//Temperature Dependence for Voff
+parameter real THESAT = 1.0 from [1.0:inf);		//Velocity Saturation Parameter
+parameter real NFACTOR = 0.0 from [0.0:inf);		//Sub-VOFF Slope parameters
+parameter real CDSCD = 0.0 from [0.0:inf);		//Sub-VOFF Slope Change due to Drain Voltage
+parameter real IMIN = 1.0e-16 ;				//Minimum Drain Current
+//Self Heating Model Parameters
+parameter real SHMOD = 1.0 ;				//Switch to turn on and off self-heating model
+parameter real RTH0 = 1.0e-12 from [0.0:inf);		//Thermal Resistance
+parameter real CTH0 = 1.0e-9 from [0.0:inf);		//Thermal Capacitance
+// Access Region Resistance Model Parameters
+parameter real RDSMOD = 1.0 ;           		// Switch for external source and drain resistances
+parameter real VSATS = 4.0e5 from [0.0:inf);		//Saturation Velocity for access region: Source Side
+parameter real VSATD = 4.0e5 from [0.0:inf);				//Saturation Velocity for access region: Drain Side
+parameter real U0ACC = 500e-3 from [0.0:inf);		//Access region mobility
+parameter real LSG = 1.0e-6 from [0.0:inf);		//Length of Source-Gate Access Region
+parameter real LDG = 1.0e-6 from [0.0:inf);		//Length of Drain-Gate Access Region
+parameter real RSC = 1.0e-3 from [0.0:inf);		//Source Contact Resistance
+parameter real RDC = 1.0e-3 from [0.0:inf);		//Drain Contact Resistance
+parameter real VIRVGS = 5.0 ;				//Virtual Gate drive for source side access region
+parameter real VIRVGD = 5.0 ;				//Virtual Gate drive for drain side access region
+//Gate current model parameters
+parameter real GATEMOD = 1.0 ; 				//Model flag to turn on/off the gate-current model
+parameter real CMAT = 10.0e-6;   	//Material Quality parameter for gate current
+parameter real SIGMAP = 1.1e+17; 	//Polarization charge for interface electric field calculation
+parameter real PHID = 1.0; 			//Barrier Height 
+parameter real BETAG = 50.0e-6; 	//Electric field coefficient in gate current
+parameter real MGATE = 0.5 ; 		//Exponent of the electric field
+parameter real VDTRAP = 5.0 ;		//Trap Density parameter 
+parameter real MINV = 1.0 ;			//Trap Variation with drain bias
+parameter real NG = 2.2 ;
+parameter real PHIB = 800.0e-3 ; 
+parameter real AG = 0.6e+6 ; 
+parameter real V0TAT = -1.4 ;
+parameter real NGST = 3.0 ;
+parameter real NGDT = 3.0 ;
+parameter real IGS0TAT = 500.0e-6 ;
+parameter real IGD0TAT = 500.0e-6 ;
+parameter real AFN = 100.0e-9 ;
+parameter real BFN = 2.3e+9 ;
+parameter real RGX = 1.5e+3 ;
+//Trap Model Parameters
+parameter real TRAPMOD = 0.0 ;				//Model Switch to turn on and off the dynamic trapping effects
+parameter real RTRAP1 = 6.0e10 from [0.0:inf);		//Trap Resistance
+parameter real CTRAP1 = 1.0e-17 from [0.0:inf);		//Trap Capacitance
+parameter real VATRAP = 1.0 from [0.0:inf);
+parameter real ITRAP = 1.0e-13 from [0.0:inf);
+parameter real VDGSAT = 5.0 from [0.0:inf);
+// Field Plate Region Parameter
+parameter real FPMOD = 0.0 ;				//Field Plate Model Selector
+parameter real VSATFP = 4.0e5 from [0.0:inf);		//Saturation Velocity for access region: Source Side
+parameter real U0FP = 50e-3 from [0.0:inf);		//Access region mobility
+parameter real VOFFGFP =  -2.0 from [-10.0:5];		//VOFF for gate field plate
+parameter real DFP =  50.0e-9 from [0.1e-9:inf);	//Distance of Field Plate from 2-DEG Charge
+parameter real LFP = 1.0e-6 ;				//Length of Field Plate
+// Capacitance Parameters
+parameter real CGSO = 1.0e-18 ;				//Gate-source overlap capacitance
+parameter real CGDO = 1.0e-18 ;				//Gate-drain overlap capacitance
+parameter real CDSO = 1.0e-18 ;				//Cds capacitance parameter
+// Gate Resistance parameters
+`ifdef __RGATEMOD__
+	parameter real XGW		= 0.0;					// Dist from gate contact center to dev edge [m]
+	parameter real XGL		= 0.0 from (-inf:inf);	// Variation in Ldrawn [m]
+	parameter integer NGCON = 1 from [1:2];			// Number of gate contacts
+	parameter real RSHG		= 0.1 from [0:inf);		// Gate sheet resistance [Ohm]
+`endif
+
+//Operating Point Variables
+
+(* desc="QSI"	*) real QSI;
+(* desc="QDI"	*) real QDI;
+(* desc="QGI"	*) real QGI;
+
+(* desc="CGGI"	*) real CGGI;
+(* desc="CGSI"	*) real CGSI;
+(* desc="CGDI"	*) real CGDI;
+
+(* desc="CSGI"	*) real CSGI;
+(* desc="CSSI"	*) real CSSI;
+(* desc="CSDI"	*) real CSDI;
+
+(* desc="CDGI"	*) real CDGI;
+(* desc="CDSI"	*) real CDSI;
+(* desc="CDDI"	*) real CDDI;
+
+
+(* desc="QS"	*) real QS;
+(* desc="QD"	*) real QD;
+(* desc="QG"	*) real QG;
+
+(* desc="CGG"	*) real CGG;
+(* desc="CGS"	*) real CGS;
+(* desc="CGD"	*) real CGD;
+
+(* desc="CSG"	*) real CSG;
+(* desc="CSS"	*) real CSS;
+(* desc="CSD"	*) real CSD;
+
+(* desc="CDG"	*) real CDG;
+(* desc="CDS"	*) real CDS;
+(* desc="CDD"	*) real CDD;
+
+
+(* desc="IGS"	*) real IGS;
+(* desc="IGD"	*) real IGD;
+(* desc="IGCS"	*) real IGCS;
+(* desc="IGCD"	*) real IGCD;
+
+
+(* desc="CGSEXT"*) real CGSEXT;
+(* desc="CGDEXT"*) real CGDEXT;
+(* desc="CGBOV"	*) real CGBOV;
+
+(* desc="CJST"	*) real CJST;
+(* desc="CJDT"	*) real CJDT;
+
+(* desc="WEFF"	*) real WEFF;
+(* desc="LEFF"	*) real LEFF;
+(* desc="WEFFCV"*) real WEFFCV;
+(* desc="LEFFCV"*) real LEFFCV;
+
+(* desc="IDS"	*) real IDS;
+(* desc="IDEFF"	*) real IDEFF;
+(* desc="ISEFF"	*) real ISEFF;
+(* desc="IGEFF"	*) real IGEFF;
+(* desc="IJSB"	*) real IJSB;
+(* desc="IJDB"	*) real IJDB;
+
+(* desc="VDS"	*) real VDS;
+(* desc="VGS"	*) real VGS;
+(* desc="VSB"	*) real VSB;
+(* desc="VDSSAT"*) real VDSSAT;
+
+(* desc="GM"	*) real GM;
+(* desc="GMBS"	*) real GMBS;
+(* desc="GDS"	*) real GDS;
+///////////////////////////////////////////////////////////////////
+
+analog begin
+
+	begin : voltages
+	real Vg0, Vds, Vgd, Vgdeff, Vgs, sigvds;
+
+	real n0, Cg, Tdev, Vtv, beta, A, k1, Vdsat,Vdeff, Voff_dibl, Voff_dibl_temp, vsat_tdev;
+
+	real t1, t2,vf, G_vf, Ids, mu_eff, Geff, mulf_tdev, Geff_clm;
+
+	real vgocp, Cch, ef1, vgef1, vgef23g0, vgef23g1, tg0, tg1;
+        real t4, vgefm13g0, vgefm13g1, t5ng0,t5dg0, t5ng1, t5dg1, t5, ef2, vgef2, vgef223g0, vgef223g1, tg02, tg12, t42, vgefm213g0, vgefm213g1, t5ng02, t5dg02, t5ng12, t5dg12, t52, ef3, psis, vgod, vgodp, psid, psim, psisd, ids0;
+
+        real qg, t0, t3, qd, qs,Vdsx, gdpr, gspr, Rdrain, Rsource, cdsc;
+
+	real igcs, igcd, es, es0, i0s, i0d, igspf, igdpf, igste, igdte, igf0, igstat, igdtat, igsfn, igdfn ;
+
+	real Vddsat, fsats, fsatd, Vsssat, vgvirs, vgvird, vdg, vdgeff, itrapsim, ct, RFP,GFP ;
+
+	real ALPHAN, ALPHAD, Hx, nsx, vgop, vgon, ndx, dvgon, dvgod, ALPHANfp, ALPHADfp, Cgfp, betafp ;
+
+	real vgmin, vggmin ;
+	
+	real qgi, qsov, qdov, qdi ;
+	
+	`ifdef __RGATEMOD__
+	real Grgeltd, Gcrg, idsovvds;
+	`endif
+
+
+//	Terminal Voltage Conditioning
+	Vds = V(`IntrinsicDrain,`IntrinsicSource);
+	Vgs = V(`IntrinsicGate,`IntrinsicSource);
+	Vgd = V(`IntrinsicGate,`IntrinsicDrain);
+	sigvds = 1.0;
+	if (Vds < 0) begin
+		sigvds = -1.0;
+		Vds = sigvds*Vds ;
+		Vgs = Vgd ; 
+		Vgd = Vgs ; 		
+	end
+	Vdsx = sqrt(Vds*Vds + 0.01) - 0.1;
+
+//	Calculation for physical quantities required in SP calculation
+	cdsc = 1.0 + NFACTOR + CDSCD*Vdsx ; //Sub-threhold Slope 
+
+	Tdev = $temperature + V(rth); 
+	Vtv = `KB*Tdev*cdsc;
+	
+	Voff_dibl = VOFF - ETA0*(Vdsx*VDSCALE)/sqrt(Vdsx*Vdsx + VDSCALE*VDSCALE) ;
+	Voff_dibl_temp = Voff_dibl - (Tdev/TNOM - 1.0)*KT1;
+
+//	VGMin Calculation
+	t0 = L/(2.0*W*`q*`DOS*Vtv*Vtv) ;
+	vgmin = VOFF + Vtv*ln(t0*IMIN) ;
+	vggmin = 0.5*( (Vgs - vgmin) + sqrt( (Vgs-vgmin)*(Vgs-vgmin) + 1.0e-4 ) ) + vgmin ;
+	Vgs = vggmin ;
+	//Vg0 = vggmin - VOFF ;
+
+	Vg0 = Vgs - Voff_dibl_temp;
+	
+	n0 = 2.0*`DOS*`KB*Tdev;
+	mulf_tdev = U0*pow((Tdev/TNOM),UTE); //Mobility Temp Dependence
+	vsat_tdev = VSAT*(1.0 + AT*(Tdev - TNOM)) ; //Vsat Temp dependence
+	Cg = `EPSILON/TBAR;
+	beta = Cg/(`q*`DOS*`KB*Tdev);
+	ALPHAN = exp(1.0)/beta;  
+	ALPHAD = 1.0/beta; 
+	A = 1.0 + beta*Vtv;
+	k1 = (`gamma0/3.0)*pow((Cg/`q),(2.0*`Oneby3));
+	Cch = Cg/`q;
+
+// 	Surface Potential Calculation Source Side 
+
+
+	vgop = 0.5*Vg0 + 0.5*sqrt(Vg0*Vg0 + 4.0*`ep_psi*`ep_psi);
+	
+	vgon = vgop*ALPHAN/(sqrt(pow(vgop,2.0) + pow(ALPHAN,2.0) ));
+	vgod = vgop*ALPHAD/(sqrt(pow(vgop,2.0) + pow(ALPHAD,2.0) ));
+	
+
+	Hx = (vgop + Vtv*(1.0-ln(beta*vgon)) - (`gamma0/3.0)*pow(Cg*vgop/`q,2.0/3.0))/(vgop*(1.0+(Vtv/vgod)) + ((2.0*`gamma0)/3.0)*pow(Cg*vgop/`q,2.0/3.0));
+	nsx = (2.0*Vtv*(Cg/`q)*ln(1.0+limexp(Vg0/(2.0*Vtv))))/((1.0/Hx) + (Cg/(`q * `DOS))*limexp((-1.0*Vg0)/(2.0*Vtv)));
+	
+	
+
+	ef1 = Vg0 - nsx/Cch;
+	
+	vgef1 = Vg0 - ef1;
+	vgef1 = 0.5*vgef1 + 0.5*sqrt(vgef1*vgef1 + 4.0*1.0e-9*1.0e-9);
+	
+	t0 = pow(Cch,0.6667) ;
+	t1 = pow(vgef1,0.6667);
+	t2 = pow(vgef1,-0.3333) ;
+	vgef23g0 = `gamma0*t0*t1;
+	vgef23g1 = `gamma1*t0*t1;
+	tg0 = (ef1/Vtv) - (vgef23g0/Vtv);
+	tg1 = (ef1/Vtv) - (vgef23g1/Vtv);
+	t4 = Cch*vgef1 - `DOS*Vtv*ln(exp(tg0) + 1.0) - `DOS*Vtv*ln(exp(tg1) + 1.0);
+	vgefm13g0 = `gamma0*t0*t2;
+	vgefm13g1 = `gamma1*t0*t2;
+	t5ng0 = exp(tg0)*`DOS*(1.0 + 0.6667*vgefm13g0);
+	t5dg0 = 1.0 + exp(tg0);
+	t5ng1 = exp(tg1)*`DOS*(1.0 + 0.6667*vgefm13g1);
+	t5dg1 = 1.0 + exp(tg1);
+	t5 = -1.0*Cch - (t5ng0/t5dg0) - (t5ng1/t5dg1);
+	
+	ef2 = ef1 - (t4/t5);
+ 	
+	vgef2 = Vg0 - ef2;
+	
+	vgef2 = 0.5*vgef2 + 0.5*sqrt(vgef2*vgef2 + 4.0*1.0e-9*1.0e-9);
+	t3 = pow(vgef2,-0.3333);
+        vgef223g0 = `gamma0*t0*pow(vgef2,0.6667);
+        vgef223g1 = `gamma1*t0*pow(vgef2,0.6667);
+        tg02 = (ef2/Vtv) - (vgef223g0/Vtv);
+        tg12 = (ef2/Vtv) - (vgef223g1/Vtv);
+        t42 = Cch*vgef2 - `DOS*Vtv*ln(exp(tg02) + 1.0) - `DOS*Vtv*ln(exp(tg12) + 1.0);
+        vgefm213g0 = `gamma0*t0*t3;
+        vgefm213g1 = `gamma1*t0*t3;
+        t5ng02 = exp(tg02)*`DOS*(1.0 + 0.6667*vgefm213g0);
+        t5dg02 = 1.0 + exp(tg02);
+        t5ng12 = exp(tg12)*`DOS*(1.0 + 0.6667*vgefm213g1);
+        t5dg12 = 1.0 + exp(tg12);
+        t52 = -1.0*Cch - (t5ng02/t5dg02) - (t5ng12/t5dg12);
+
+		
+
+	ef3 = ef2 - (t42/t52); 
+
+	psis = ef3 ;
+
+//Mobility and Vdeff calculation
+
+	t0 = (Cg/`EPSILON)*abs(Vg0 - psis) ;
+	mu_eff = mulf_tdev/(1.0 + UA*(t0) + UB*t0*t0) ;
+	t0 = 2.0*vsat_tdev/mu_eff ;
+	t1 = 0.5*Vg0 + 0.5*sqrt(Vg0*Vg0 + 4.0*`ep_psi*`ep_psi);
+	Vdsat = t0*L*t1/(t0*L + t1 ) ;
+        t0 = pow(Vds/Vdsat, DELTA);
+	t1 = pow(1.0 + t0,-1.0/DELTA);
+	Vdeff = Vds * t1;
+        Vgdeff = Vg0 - Vdeff;
+
+//Surface Potential Drain SIde
+        vgod = Vgdeff;
+        vgodp = 0.5*vgod + 0.5*sqrt(vgod*vgod + 4.0*`ep_psi*`ep_psi);
+
+	vgop = vgodp ;
+	dvgon = vgop*ALPHAN/(sqrt(pow(vgop,2.0) + pow(ALPHAN,2.0) ));
+	dvgod = vgop*ALPHAD/(sqrt(pow(vgop,2.0) + pow(ALPHAD,2.0) ));
+	Hx = (vgop + Vtv*(1.0-ln(beta*dvgon)) - (`gamma0/3.0)*pow(Cg*vgop/`q,2.0/3.0))/(vgop*(1.0+(Vtv/dvgod)) + ((2.0*`gamma0)/3.0)*pow(Cg*vgop/`q,2.0/3.0));
+	ndx = (2.0*Vtv*(Cg/`q)*ln(1.0+limexp(vgod/(2.0*Vtv))))/((1.0/Hx) + (Cg/(`q * `DOS))*limexp((-1.0*vgod)/(2.0*Vtv)));
+	
+	ef1 = vgod - ndx/Cch;
+	
+	vgef1 = vgod - ef1;
+	vgef1 = 0.5*vgef1 + 0.5*sqrt(vgef1*vgef1 + 4.0*1.0e-9*1.0e-9);
+	t0 = pow(Cch,0.6667) ;
+	t1 = pow(vgef1,0.6667) ;
+	t2 = pow(vgef1,-0.3333) ;
+	vgef23g0 = `gamma0*t0*t1;
+	vgef23g1 = `gamma1*t0*t1;
+	tg0 = (ef1/Vtv) - (vgef23g0/Vtv);
+	tg1 = (ef1/Vtv) - (vgef23g1/Vtv);
+	t4 = Cch*vgef1 - `DOS*Vtv*ln(exp(tg0) + 1.0) - `DOS*Vtv*ln(exp(tg1) + 1.0);
+	vgefm13g0 = `gamma0*t0*t2;
+	vgefm13g1 = `gamma1*t0*t2;
+	t5ng0 = exp(tg0)*`DOS*(1.0 + 0.6667*vgefm13g0);
+	t5dg0 = 1.0 + exp(tg0);
+	t5ng1 = exp(tg1)*`DOS*(1.0 + 0.6667*vgefm13g1);
+	t5dg1 = 1.0 + exp(tg1);
+	t5 = -1.0*Cch - (t5ng0/t5dg0) - (t5ng1/t5dg1);
+	
+	ef2 = ef1 - (t4/t5);
+ 	
+	vgef2 = vgod - ef2;
+	vgef2 = 0.5*vgef2 + 0.5*sqrt(vgef2*vgef2 + 4.0*1.0e-9*1.0e-9);
+        vgef223g0 = `gamma0*t0*pow(vgef2,0.6667);
+        vgef223g1 = `gamma1*t0*pow(vgef2,0.6667);
+        tg02 = (ef2/Vtv) - (vgef223g0/Vtv);
+        tg12 = (ef2/Vtv) - (vgef223g1/Vtv);
+        t42 = Cch*vgef2 - `DOS*Vtv*ln(exp(tg02) + 1.0) - `DOS*Vtv*ln(exp(tg12) + 1.0);
+        vgefm213g0 = `gamma0*t0*pow(vgef2,-0.3333);
+        vgefm213g1 = `gamma1*t0*pow(vgef2,-0.3333);
+        t5ng02 = exp(tg02)*`DOS*(1.0 + 0.6667*vgefm213g0);
+        t5dg02 = 1.0 + exp(tg02);
+        t5ng12 = exp(tg12)*`DOS*(1.0 + 0.6667*vgefm213g1);
+        t5dg12 = 1.0 + exp(tg12);
+        t52 = -1.0*Cch - (t5ng02/t5dg02) - (t5ng12/t5dg12);
+
+		
+
+	ef3 = ef2 - (t42/t52); 
+
+	psid = ef3 + Vdeff ;
+
+        psim = 0.5*(psis + psid);
+	psisd = psid - psis ;
+ ////////////////////////////////////////////////////////////////////////////////////////////////
+
+	ids0 = (Vg0 - psim + Vtv)*(psisd);   
+
+// Moblity Degradation
+	t0 = (Cg/`EPSILON)*abs(Vg0 - psim) ;
+	
+	mu_eff = mulf_tdev/(1.0 + UA*(t0) + UB*t0*t0) ;
+
+		     
+        Geff=(mu_eff*Cg*W*NF)/(L);
+
+	Geff_clm=Geff*(1.0 + LAMBDA*(Vdsx-Vdeff));
+        
+        vf = sqrt(1.0 + THESAT*THESAT*psisd*psisd) ;
+	G_vf = Geff_clm/vf;
+	Ids = G_vf*(ids0);
+
+
+	I(`IntrinsicDrain,`IntrinsicSource) <+ sigvds*Ids ;
+	if (SHMOD == 1.0) begin
+	I(rth) <+ V(rth)/RTH0;
+	I(ith) <+ -1.0*Ids*Vds;
+	I(cth) <+ CTH0*ddt(V(rth)) ;
+	end else begin
+	V(rth) <+ 0.0 ;
+	end
+
+///////////////////////////Gate Current Model////////////////////////////////////////////////
+	if (GATEMOD != 0.0) begin
+//	Poole-Frenkel
+	es = (`q*SIGMAP - Cg*(Vgs - VOFF - psis))/`EPSILON ;    //Surface Electric Field
+	es0 = (`q*SIGMAP - Cg*(- VOFF - psis))/`EPSILON ;	//Surface Electric Field at Zero Bias
+	t0 = -1.0*(PHID/Vtv) + (BETAG/(Vtv))*pow(es0,MGATE) ;
+	i0s = CMAT*W*L*es0*lexp(t0) ;
+	t1 = (BETAG/Vtv)*(pow(es,MGATE)-pow(es0,MGATE)) ;
+	igspf = (es/es0)*i0s*(lexp(t1) - 1.0) ;
+
+	es = (`q*SIGMAP - Cg*(Vgs - VOFF - psid))/`EPSILON ;    //Surface Electric Field
+	es0 = (`q*SIGMAP - Cg*(- VOFF - psid))/`EPSILON ;	//Surface Electric Field at Zero Bias
+	t0 = -1.0*(PHID/Vtv) + (BETAG/(Vtv))*pow(es0,MGATE) ;
+	t2 = ln(1.0 + lexp(((Vdsx-MINV)/VDTRAP))) ;	
+	i0d = CMAT*t2*W*L*es0*lexp(t0) ;
+	t1 = (BETAG/Vtv)*(pow(es,MGATE)-pow(es0,MGATE)) ;
+	igdpf = (es/es0)*i0d*(lexp(t1) - 1.0) ;
+
+// Trap assisted tunnelling (with zero bias correction; acts like TE component)	
+/*	t0 = (Vgs)/(NGST*`KB*Tdev) ;
+	t1 = (-V0TAT)/(NGST*`KB*Tdev) ;
+	igstat = W*L*NF*IGS0TAT*lexp(t1)*(lexp(t0)-1.0);
+	
+	t0 = (Vgd)/(NGDT*`KB*Tdev) ;
+	t1 = (-V0TAT)/(NGDT*`KB*Tdev) ;
+	igdtat = W*L*NF*IGD0TAT*lexp(t1)*(lexp(t0)-1.0);
+*/
+	
+// Trap assisted tunnelling (w/o zero bias correction; non zero current)	
+/*	t0 = (Vgs-V0TAT)/(NGST*`KB*Tdev) ;
+	igstat = W*L*NF*IGS0TAT*(lexp(t0)-1.0);
+	
+	t0 = (Vgd-V0TAT)/(NGDT*`KB*Tdev) ;
+	igdtat = W*L*NF*IGD0TAT*(lexp(t0)-1.0);
+*/
+	
+// FN tunnelling current
+	es = (`q*SIGMAP - Cg*(Vgs - VOFF - psis))/`EPSILON ;
+	es0 = (`q*SIGMAP - Cg*(- VOFF - psis))/`EPSILON ;
+	igsfn = W*L*NF*AFN*(es*es)*(lexp(-(BFN/es))-lexp(-(BFN/es0)));
+	
+	es = (`q*SIGMAP - Cg*(Vgs - VOFF - psid))/`EPSILON ;
+	es0 = (`q*SIGMAP - Cg*(- VOFF - psid))/`EPSILON ;
+	igdfn = W*L*NF*AFN*(es*es)*(lexp(-(BFN/es))-lexp(-(BFN/es0)));
+	
+//	Forward Gate Current (Thermionic emission)
+	t0 = (Vgs)/(NG*`KB*Tdev) ;
+	t1 = (-1.0*PHIB)/(`KB*Tdev);
+	igf0 = AG*(Tdev*Tdev)*lexp(t1);
+	igste = W*L*NF*igf0*(lexp(t0)-1);
+
+	t0 = (Vgd)/(NG*`KB*Tdev) ;
+	igdte = W*L*NF*igf0*(lexp(t0)-1);
+
+	igcs =   -igste+igspf+igsfn;  // -igste-igstat+igspf+igsfn (test individual contribution)
+	igcd =   -igdte+igdpf+igdfn;  // -igdte-igdtat+igdpf+igdfn (test individual contribution)
+	
+	I(`IntrinsicSource,gi) <+ igcs; 
+	I(`IntrinsicDrain,gi) <+ igcd; 
+	
+	V(gi,g) <+ RGX*I(gi,g);	
+	end //else begin
+		//V(gi,g) <+ 0.0;
+	//end	
+	
+	//$strobe("igcs=%e",I(si,gi));
+
+
+////////External Source and Drain resistance//////////////////////
+
+/////////Trap Model//////////////////////////////////////////////
+	if (TRAPMOD == 1.0) begin
+	vdg = V(d,g);
+	vdgeff = vdg*VDGSAT/sqrt(vdg*vdg+VDGSAT*VDGSAT);
+	itrapsim = ITRAP*(lexp(vdgeff/VATRAP) - 1.0);
+	I(rtrap1) <+ V(trap1)/RTRAP1;
+	I(itrap1) <+ -1.0*(itrapsim);
+	/*if (vdg > 0.0) begin
+	ct = CTRAP1/1.0e1 ;
+	//ct = CTRAP1 ;
+	end
+	else begin
+	ct = CTRAP1 ;
+	end
+	*/
+	ct = CTRAP1/(lexp(vdgeff/VATRAP)+1.0);
+	I(rtrap1) <+ ct*ddt(V(trap1)) ;
+	end else begin
+	V(trap1) <+ 0.0 ;
+	end
+
+	//$strobe("Vtrap1=%e",V(trap1));
+	//$strobe("Itrap1=%e",I(itrap1));
+
+/////////////////Field Plate Region Resistance //////////////////////////////
+`ifdef __FPMOD__
+	if(FPMOD != 0) begin
+	Cgfp = `EPSILON/(DFP);
+	betafp = Cgfp/(`q*`DOS*`KB*Tdev);
+	ALPHANfp = exp(1.0)/betafp;  
+	ALPHADfp = 1.0/betafp; 
+
+	vgvirs = Vgs - VOFFGFP ;
+
+	vgop = 0.5*vgvirs + 0.5*sqrt(vgvirs*vgvirs + 4.0*`ep_psi*`ep_psi);
+	
+	vgon = vgop*ALPHAN/(sqrt(pow(vgop,2.0) + pow(ALPHAN,2.0) ));
+	vgod = vgop*ALPHAD/(sqrt(pow(vgop,2.0) + pow(ALPHAD,2.0) ));
+	
+
+	Hx = (vgop + Vtv*(1.0-ln(beta*vgon)) - (`gamma0/3.0)*pow(Cg*vgop/`q,2.0/3.0))/(vgop*(1.0+(Vtv/vgod)) + ((2.0*`gamma0)/3.0)*pow(Cg*vgop/`q,2.0/3.0));
+	nsx = (2.0*Vtv*(Cg/`q)*ln(1.0+limexp(vgvirs/(2.0*Vtv))))/((1.0/Hx) + (Cg/(`q * `DOS))*limexp((-1.0*vgvirs)/(2.0*Vtv)));
+
+	Vsssat = (VSATFP/U0FP)*(LFP-L) ;
+	t0 = V(`IntrinsicDrainfp,`IntrinsicDrain)/Vsssat ;
+	fsats = t0/pow((1.0+t0*t0),0.5);
+	t1 = 1.0 - fsats ;
+	RFP = (LFP-L)/(U0FP*`q*nsx*W*t1) ;
+	end else begin
+    RFP = 1.0e-9 ;
+	end
+	GFP = 1.0/RFP ;
+`endif
+
+`ifdef __FPMOD__
+	if(FPMOD != 0) begin
+		I(di, dfp) <+ V(di, dfp) * GFP;		
+	end else begin
+		V(di, dfp) <+ 0;		
+	end
+`endif	
+
+////////////Access Region Resistance Model Starts /////////////////////////////////////////
+	if(RDSMOD != 0) begin
+//	Source Side Resistance
+
+	vgvirs = VIRVGS - V(trap1) ;
+
+	vgop = 0.5*vgvirs + 0.5*sqrt(vgvirs*vgvirs + 4.0*`ep_psi*`ep_psi);
+	
+	vgon = vgop*ALPHAN/(sqrt(pow(vgop,2.0) + pow(ALPHAN,2.0) ));
+	vgod = vgop*ALPHAD/(sqrt(pow(vgop,2.0) + pow(ALPHAD,2.0) ));
+	
+
+	Hx = (vgop + Vtv*(1.0-ln(beta*vgon)) - (`gamma0/3.0)*pow(Cg*vgop/`q,2.0/3.0))/(vgop*(1.0+(Vtv/vgod)) + ((2.0*`gamma0)/3.0)*pow(Cg*vgop/`q,2.0/3.0));
+	nsx = (2.0*Vtv*(Cg/`q)*ln(1.0+limexp(vgvirs/(2.0*Vtv))))/((1.0/Hx) + (Cg/(`q * `DOS))*limexp((-1.0*vgvirs)/(2.0*Vtv)));
+
+	Vsssat = (VSATS/U0ACC)*LSG ;
+	t0 = V(si,s)/Vsssat ;
+	fsats = t0/pow((1+t0*t0),0.5);
+	t1 = 1.0 - fsats ;
+	Rsource = LSG/(U0ACC*`q*nsx*W*t1) + RSC;	
+//	Drain Side Resistance
+
+	vgvird = VIRVGD - V(trap1) ;
+
+	vgop = 0.5*vgvird + 0.5*sqrt(vgvird*vgvird + 4.0*`ep_psi*`ep_psi);
+	
+	vgon = vgop*ALPHAN/(sqrt(pow(vgop,2.0) + pow(ALPHAN,2.0) ));
+	vgod = vgop*ALPHAD/(sqrt(pow(vgop,2.0) + pow(ALPHAD,2.0) ));
+	
+	Hx = (vgop + Vtv*(1.0-ln(beta*vgon)) - (`gamma0/3.0)*pow(Cg*vgop/`q,2.0/3.0))/(vgop*(1.0+(Vtv/vgod)) + ((2.0*`gamma0)/3.0)*pow(Cg*vgop/`q,2.0/3.0));
+	ndx = (2.0*Vtv*(Cg/`q)*ln(1.0+limexp(vgvirs/(2.0*Vtv))))/((1.0/Hx) + (Cg/(`q * `DOS))*limexp((-1.0*vgvirs)/(2.0*Vtv)));
+
+	Vddsat = (VSATD/U0ACC)*LDG ;
+	t0 = V(d,di)/Vddsat ;
+	$strobe("Vddi=%e",V(d,di));
+	fsatd = t0/pow((1+t0*t0),0.5);
+	$strobe("fsatd=%e",fsatd);
+	t1 = 1.0 - fsatd ;
+	Rdrain = LDG/(U0ACC*`q*ndx*W*t1) + RDC ;
+	$strobe("Rdrain=%e",Rdrain) ;
+
+	end else begin
+		Rdrain = 1.0e-6 ;
+		Rsource = 1.0e-6 ;
+	end
+
+/////////////Access Region Resistance Model Ends///////////////////////////////////////////////////
+
+	gdpr = 1.0 / Rdrain; 
+	gspr = 1.0 / Rsource; 
+	I(d, `IntrinsicDrainfp) <+ gdpr*V(d,`IntrinsicDrainfp);
+	I(s, si) <+ gspr*V(s,si);
+        		
+////////////////////////Charge Equations////////////////////////////////////////////////////////////
+/// Gate Charge
+/*	t0 = Vg0*Vg0;
+	t1 = (`Oneby3)*(psid*psid + psis*psis + psid*psis);
+	t2 = Vg0*(psid+psis);
+	t3 = Vtv*((psid+psis)/2.0);
+	t4 = Vtv*Vg0;
+	t5 = Vg0 - psim + Vtv;
+	qg = ((Cg*W*NF*L)/t5)*(t0 + t1 - t2 -t3 + t4); */
+	
+	t0 = Vg0 + Vtv ;
+	t1 = psid - psis ;
+	t2 = Vg0 + Vtv - psim ;
+	qgi = (Cg*W*NF*L)*(Vg0 - psim + 0.5*t1*t1/(6.0*t2));
+	qsov = CGSO*Vgs ;
+	qdov = CGDO*Vgd ;
+	qg = qgi + qsov + qdov;
+			
+////////////////////////////////////////////////////////////////////////////////////////////////////		
+     ///Drain Charge	
+
+	t0 = Vg0 + Vtv - psim ;
+	t1 = (psis + 2.0*psid)/3.0 ;
+	t2 = (1.0/12.0)*(psisd*psisd)/t0 ;
+	t3 = (1.0/120.0)*(psisd*psisd*psisd)*(t0*t0) ;
+	qdi = -(Cg*W*L*NF*0.5)*(Vg0 - t1 + t2 + t3) ; 
+	qd = qdi - qdov + CDSO*Vds;
+///////////////////////////////////////////////////////////////////////////////////////////////////
+	///Source Charge
+	qs = -1.0*qg -1.0*qd;
+	if(sigvds < 0.0)
+        begin
+            t1 = qs;
+            qs = qd;
+            qd = t1;
+        end
+	
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Gate Resistance
+	`ifdef __RGATEMOD__
+	Grgeltd = RSHG * (XGW + W / 3.0 / NGCON)/ ( NGCON * NF * (L));
+	if (Grgeltd > 0.0)
+		Grgeltd = 1.0 / Grgeltd;
+	else begin
+		Grgeltd = 1.0e3; /* mho */
+		
+	end
+	`endif	
+	
+	
+        I(`IntrinsicDrain,`IntrinsicSource) <+ ddt(qd);
+	I(`IntrinsicGate,`IntrinsicSource) <+ ddt(qg);
+	
+	`ifdef __RGATEMOD__
+	I(g,gi) <+ Grgeltd*V(g,gi) ;
+	`endif	
+	
+    	//I(temp) <+ V(trap1) ;
+	//I(temp) <+ itrapsim ;
+	//CGD = -ddx(qg, V(d));
+	CGS = -ddx(qg, V(`IntrinsicSource));
+	CGD = -ddx(qg, V(`IntrinsicDrain));
+	CDD = ddx(qd,V(`IntrinsicDrain));
+	CSS = ddx(qs,V(`IntrinsicSource));
+	//CGS = ddx(CDD,V(`IntrinsicDrain));
+        GM  = ddx(Ids,V(g));//Transconductance
+	//GDS = ddx(Ids,V(`IntrinsicDrain));// Drain conductance
+	//$strobe("CGD=%e",CGD); 
+	//$strobe("CGS=%e",CGS);
+//	$strobe("CSS=%e",CSS+CDD);
+//	$strobe("qd=%e",qd);
+//	$strobe("Vgs=%e",Vgs);
+//	$strobe("Vds=%e",Vds);
+//	$strobe("gm=%e",GM);
+	end
+end
+endmodule	
+
+	
+	
