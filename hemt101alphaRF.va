@@ -1,6 +1,7 @@
 /* GaN HEMT Model Version 1.0.0alpha updated 12-02-2013
 Authors: Sourabh Khandelwal, Tor A Fjeldly, Yogesh Singh Chauhan, Sudip Ghosh, 
 Contact: sourabh@berkeley.edu, sourabhkhandelwal@gmail.com
+branch test
 */
 `include "discipline.h"
 `include "constants.h"
