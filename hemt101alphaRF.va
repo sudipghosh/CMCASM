@@ -1,4 +1,4 @@
-/* GaN HEMT Model Version 1.0.0alpha updated 12-02-2014
+/* GaN HEMT Model Version 1.0.0alpha updated 08-26-2014
 Authors: Sourabh Khandelwal, Tor A Fjeldly, Yogesh Singh Chauhan, Sudip Ghosh, 
 Contact: sourabh@berkeley.edu, sourabhkhandelwal@gmail.com
 */
@@ -21,13 +21,9 @@ Contact: sourabh@berkeley.edu, sourabhkhandelwal@gmail.com
 // Not all Verilog-A compilers are able to properly collapse
 // internal nodes  by shorting branches. To ensure minimal node 
 // count, comment out the following lines:
-//`define __RDSMOD__
+`define __RDSMOD__
 //`define __FPMOD__
 `define __RGATEMOD__
-
-
-
-
 
 
 module hemtsp(d,g,s,dt);
@@ -97,11 +93,11 @@ parameter real UB = 0.0e-18 from [0.0:inf);		// Mobility Degradation coefficient
 parameter real VSAT = 1.9e5 from [1.0e3:inf);		//Saturation Velocity
 parameter real DELTA = 2.0 from [2.0:inf);		// Exponent for Vdeff
 parameter real AT = -1.0e-3 from (-inf:inf);		//Temperature Dependence for saturation velocity
-parameter real UTE = -1.0 from [-10.0:0];		// Temperature dependence of mobility
+parameter real UTE = -0.5 from [-10.0:0];		// Temperature dependence of mobility
 parameter real LAMBDA = 0.0 from [0.0:inf);		//Channel Length Modulation Coefficient
 parameter real ETA0 = 0.0e-3 from [0.0:inf);		//DIBL Parameter
 parameter real VDSCALE = 10.0 from (0.0:inf);		//DIBL Scaling VDS
-parameter real KT1 = 0.0e-9 from [0.0:inf);		//Temperature Dependence for Voff
+parameter real KT1 = 50.0e-3 from [0.0:inf);		//Temperature Dependence for Voff
 parameter real THESAT = 1.0 from [1.0:inf);		//Velocity Saturation Parameter
 parameter real NFACTOR = 0.0 from [0.0:inf);		//Sub-VOFF Slope parameters
 parameter real CDSCD = 0.0 from [0.0:inf);		//Sub-VOFF Slope Change due to Drain Voltage
@@ -111,18 +107,34 @@ parameter real SHMOD = 1.0 ;				//Switch to turn on and off self-heating model
 parameter real RTH0 = 1.0e-12 from [0.0:inf);		//Thermal Resistance
 parameter real CTH0 = 1.0e-9 from [0.0:inf);		//Thermal Capacitance
 // Access Region Resistance Model Parameters
-parameter real RDSMOD = 1.0 ;           		// Switch for external source and drain resistances
-parameter real VSATS = 4.0e5 from [0.0:inf);		//Saturation Velocity for access region: Source Side
-parameter real VSATD = 4.0e5 from [0.0:inf);				//Saturation Velocity for access region: Drain Side
-parameter real U0ACC = 500e-3 from [0.0:inf);		//Access region mobility
+parameter real RDSMOD = 2.0 ;           		// Switch for external source and drain resistances
+parameter real VSATACCS = 0.2e5 from [0.0:inf);		//Saturation Velocity for access region: Source Side
+parameter real VSATACCD = VSATACCS from [0.0:inf);				//Saturation Velocity for access region: Drain Side
+parameter real NS0ACC = 1.0e17 from [1.0e5:inf) ;       // 2-DEG Charge Density in per squate meter in access region
+parameter real U0ACCS = 155e-3 from [0.0:inf);		//Access region mobility source-side
+parameter real U0ACCD = U0ACCS from [0.0:inf);		//Access region mobility drain-side
+parameter real KAPPAS = 0.0 from [0.0:inf) ;		// Gate voltage dependence of sheet resistivity of access region
+parameter real KAPPAD = KAPPAS from [0.0:inf) ;		// Gate voltage dependence of sheet resistivity of access region
+parameter real MEXPACCS = 2.0 from [0.0:inf) ;       // Exponent for access region resistance model
+parameter real MEXPACCD = MEXPACCS from [0.0:inf) ;        // Exponent for access region resistance model
 parameter real LSG = 1.0e-6 from [0.0:inf);		//Length of Source-Gate Access Region
 parameter real LDG = 1.0e-6 from [0.0:inf);		//Length of Drain-Gate Access Region
-parameter real RSC = 1.0e-3 from [0.0:inf);		//Source Contact Resistance
-parameter real RDC = 1.0e-3 from [0.0:inf);		//Drain Contact Resistance
+parameter real RSC = 1.6e-4 from [0.0:inf);		//Source Contact Resistance
+parameter real RDC = RSC from [0.0:inf);		//Drain Contact Resistance
+parameter real RSHS = 40.0 from [0.0:inf) ;		// Source access region sheet resistance
+parameter real RSHD = RSHS from [0.0:inf) ;		// Drain access region sheet resistance
+parameter real TRSHS = 0.0 from [0.0:inf) ;		// Temperature Dependence of Source access region sheet resistance
+parameter real TRSHD = TRSHS from [0.0:inf) ;		// Temperature Dependence of Drain access region sheet resistance
 parameter real VIRVGS = 5.0 ;				//Virtual Gate drive for source side access region
 parameter real VIRVGD = 5.0 ;				//Virtual Gate drive for drain side access region
+parameter real KNS0 = 250.0e-3 ; 				//Temperature Dependence for 2-DEG charge density at access region 
+parameter real ATS = -1e-3  ;					//Temperature Dependence for saturation velocity at access region
+parameter real UTES = -0.5  ;					//Temperature dependence of mobility at access region: Source Side
+parameter real UTED = -0.5  ; 				//Temperature dependence of mobility at access region: Drain Side
+parameter real KRSC = 0.5 ; 				//Temperature dependence of Source Contact Resistance for RDSMOD2
+parameter real KRDC = 0.5  ;				//Temperature dependence of Drain Contact Resistance for RDSMOD2
 //Gate current model parameters
-parameter real GATEMOD = 1.0 ; 				//Model flag to turn on/off the gate-current model
+parameter real GATEMOD = 0.0 ; 				//Model flag to turn on/off the gate-current model
 parameter real CMAT = 10.0e-6;   	//Material Quality parameter for gate current
 parameter real SIGMAP = 1.1e+17; 	//Polarization charge for interface electric field calculation
 parameter real PHID = 1.0; 			//Barrier Height 
@@ -261,6 +273,10 @@ analog begin
 	real vgmin, vggmin ;
 	
 	real qgi, qsov, qdov, qdi ;
+
+	real vdsataccs, vdsataccd, gsbias, gdbias, rsbias, rdbias, rshst, rshdt, ns0, qsacc, isatacc, rd0, rs0 ;
+	
+	real vsataccs_t, ns0_t, rsc_t, rdc_t, u0accs_t, u0accd_t;
 	
 	`ifdef __RGATEMOD__
 	real Grgeltd, Gcrg, idsovvds;
@@ -287,19 +303,24 @@ analog begin
 	Vtv = `KB*Tdev*cdsc;
 	
 	Voff_dibl = VOFF - ETA0*(Vdsx*VDSCALE)/sqrt(Vdsx*Vdsx + VDSCALE*VDSCALE) ;
-	Voff_dibl_temp = Voff_dibl - (Tdev/TNOM - 1.0)*KT1;
+	Voff_dibl_temp = Voff_dibl + (Tdev/TNOM - 1.0)*KT1;
 
 //	VGMin Calculation
 	t0 = L/(2.0*W*`q*`DOS*Vtv*Vtv) ;
 	vgmin = VOFF + Vtv*ln(t0*IMIN) ;
 	vggmin = 0.5*( (Vgs - vgmin) + sqrt( (Vgs-vgmin)*(Vgs-vgmin) + 1.0e-4 ) ) + vgmin ;
+	
+	
 	Vgs = vggmin ;
+	
 	//Vg0 = vggmin - VOFF ;
 
 	Vg0 = Vgs - Voff_dibl_temp;
 	
 	n0 = 2.0*`DOS*`KB*Tdev;
 	mulf_tdev = U0*pow((Tdev/TNOM),UTE); //Mobility Temp Dependence
+	
+
 	vsat_tdev = VSAT*(1.0 + AT*(Tdev - TNOM)) ; //Vsat Temp dependence
 	Cg = `EPSILON/TBAR;
 	beta = Cg/(`q*`DOS*`KB*Tdev);
@@ -380,6 +401,7 @@ analog begin
 	t1 = pow(1.0 + t0,-1.0/DELTA);
 	Vdeff = Vds * t1;
         Vgdeff = Vg0 - Vdeff;
+	
 
 //Surface Potential Drain SIde
         vgod = Vgdeff;
@@ -392,13 +414,14 @@ analog begin
 	ndx = (2.0*Vtv*(Cg/`q)*ln(1.0+limexp(vgod/(2.0*Vtv))))/((1.0/Hx) + (Cg/(`q * `DOS))*limexp((-1.0*vgod)/(2.0*Vtv)));
 	
 	ef1 = vgod - ndx/Cch;
-	
+
 	vgef1 = vgod - ef1;
 	vgef1 = 0.5*vgef1 + 0.5*sqrt(vgef1*vgef1 + 4.0*1.0e-9*1.0e-9);
 	t0 = pow(Cch,0.6667) ;
 	t1 = pow(vgef1,0.6667) ;
 	t2 = pow(vgef1,-0.3333) ;
 	vgef23g0 = `gamma0*t0*t1;
+
 	vgef23g1 = `gamma1*t0*t1;
 	tg0 = (ef1/Vtv) - (vgef23g0/Vtv);
 	tg1 = (ef1/Vtv) - (vgef23g1/Vtv);
@@ -421,21 +444,23 @@ analog begin
         tg12 = (ef2/Vtv) - (vgef223g1/Vtv);
         t42 = Cch*vgef2 - `DOS*Vtv*ln(exp(tg02) + 1.0) - `DOS*Vtv*ln(exp(tg12) + 1.0);
         vgefm213g0 = `gamma0*t0*pow(vgef2,-0.3333);
+
         vgefm213g1 = `gamma1*t0*pow(vgef2,-0.3333);
         t5ng02 = exp(tg02)*`DOS*(1.0 + 0.6667*vgefm213g0);
         t5dg02 = 1.0 + exp(tg02);
         t5ng12 = exp(tg12)*`DOS*(1.0 + 0.6667*vgefm213g1);
         t5dg12 = 1.0 + exp(tg12);
         t52 = -1.0*Cch - (t5ng02/t5dg02) - (t5ng12/t5dg12);
-
 		
-
 	ef3 = ef2 - (t42/t52); 
 
 	psid = ef3 + Vdeff ;
 
         psim = 0.5*(psis + psid);
 	psisd = psid - psis ;
+	
+
+
  ////////////////////////////////////////////////////////////////////////////////////////////////
 
 	ids0 = (Vg0 - psim + Vtv)*(psisd);   
@@ -453,7 +478,6 @@ analog begin
         vf = sqrt(1.0 + THESAT*THESAT*psisd*psisd) ;
 	G_vf = Geff_clm/vf;
 	Ids = G_vf*(ids0);
-
 
 	I(`IntrinsicDrain,`IntrinsicSource) <+ sigvds*Ids ;
 	if (SHMOD == 1.0) begin
@@ -597,47 +621,72 @@ analog begin
 `endif	
 
 ////////////Access Region Resistance Model Starts /////////////////////////////////////////
-	if(RDSMOD != 0) begin
+	if(RDSMOD == 1.0) begin
 //	Source Side Resistance
-
-	vgvirs = VIRVGS - V(trap1) ;
-
-	vgop = 0.5*vgvirs + 0.5*sqrt(vgvirs*vgvirs + 4.0*`ep_psi*`ep_psi);
+		/*t0 = (U0ACCD/(VSATACCD*LDG))*V(d,`IntrinsicDrainfp) ;
+		t1 = 1.0 + pow(t0, MEXPACCD) ;
+		t0 = pow(t1,1.0/MEXPACCD)
+		Rdrain = RCD/(W*NF) + RSHD*(LGD/(W*NF))*(1.0/(1.0 + KAPPAD*vgop))*t0 ;
 	
-	vgon = vgop*ALPHAN/(sqrt(pow(vgop,2.0) + pow(ALPHAN,2.0) ));
-	vgod = vgop*ALPHAD/(sqrt(pow(vgop,2.0) + pow(ALPHAD,2.0) ));
+		t0 = (U0ACCS/(VSATACCS*LSG))*V(s,si) ;
+		t1 = 1.0 + pow(t0, MEXPACCS) ;
+		t0 = pow(t1,1.0/MEXPACCS)
+		Rsource = RCS/(W*NF) + RSHS*(LGS/(W*NF))*(1.0/(1.0 + KAPPAS*vgop))*t0 ;
+		*/
+		rshst = RSHS*(((Tdev-1.0)/TNOM)*TRSHS + 1.0) ;
+		
+
+		$strobe("Tdev=%e",Tdev) ;
+		vdsataccs = VSATACCS * ( LSG / U0ACCS ) ;
+		t0 = (1.0 + KAPPAS*vgop)/(rshst*(LSG/(W*NF))) ;
+		t1 = pow(V(si,s),MEXPACCS) + pow(vdsataccs,MEXPACCS) ;
+		$strobe("Vssi=%e",V(si,s));
+		t2 = pow(t1,(MEXPACCS+1.0)/MEXPACCS) ;
+		gsbias = t0 * ( pow(vdsataccs,MEXPACCS + 1.0) / t2 ) ;
+		rsbias = 1.0/gsbias ;
+		Rsource = RSC/(W*NF) + rsbias ;
+		$strobe("Rsource=%e",Rsource) ;
+		//Rsource = 0.1 ;
+		rshdt = RSHD*(((Tdev-1.0)/TNOM)*TRSHD + 1.0) ;
+		vdsataccd = VSATACCD * ( LDG / U0ACCD ) ;
+		//$strobe("vdsataccd=%e",vdsataccd);
+		t0 = (1.0 + KAPPAD*vgop)/(rshdt*(LDG/(W*NF))) ;
+		//$strobe("t0=%e",t0);
+		t1 = pow(V(d,`IntrinsicDrainfp),MEXPACCD) + pow(vdsataccd,MEXPACCD) ;
+		$strobe("Vddfp=%e",V(d,`IntrinsicDrainfp));
+		$strobe("Vddi=%e",V(d,`IntrinsicDrain)) ;
+		t2 = pow(t1,(MEXPACCD+1.0)/MEXPACCD) ;
+		//$strobe("t2=%e",t2);
+		gdbias = t0 * ( pow(vdsataccd,MEXPACCD + 1.0) / t2 ) ;
+		rdbias = 1.0/gdbias ;
+		Rdrain = RDC/(W*NF) + rdbias ;
+		$strobe("Rdrain=%e",Rdrain) ;
+		//Rdrain = 0.1 ;
 	
+        end else if (RDSMOD == 2.0) begin
+		ns0_t = NS0ACC*(1.0 - KNS0*(Tdev/TNOM-1.0)) ;
+		qsacc = `q*ns0_t ;
+		vsataccs_t = VSATACCS*(1.0 + ATS*(Tdev - TNOM)) ; //Vsat Temp dependence
+		isatacc = W*NF*qsacc*vsataccs_t ;
+		u0accs_t = U0ACCS*pow((Tdev/TNOM),UTES) ; //Mobility Temp Dependence
+		rs0 = LSG/(W*NF*qsacc*u0accs_t) ;
+		t0 = pow((Ids/isatacc),MEXPACCS) ;
+		t1 = 1.0 - t0 ;
+		t2 = pow(t1,1.0/MEXPACCS) ;
+		rsbias = rs0/t2 ;
+		rsc_t = RSC*(1.0+KRSC*(Tdev/TNOM-1.0)) ;
+		Rsource = rsc_t/(W*NF) + rsbias ;
 
-	Hx = (vgop + Vtv*(1.0-ln(beta*vgon)) - (`gamma0/3.0)*pow(Cg*vgop/`q,2.0/3.0))/(vgop*(1.0+(Vtv/vgod)) + ((2.0*`gamma0)/3.0)*pow(Cg*vgop/`q,2.0/3.0));
-	nsx = (2.0*Vtv*(Cg/`q)*ln(1.0+limexp(vgvirs/(2.0*Vtv))))/((1.0/Hx) + (Cg/(`q * `DOS))*limexp((-1.0*vgvirs)/(2.0*Vtv)));
+		u0accd_t = U0ACCD*pow((Tdev/TNOM),UTED) ; //Mobility Temp Dependence
+		rd0 = LDG/(W*NF*qsacc*u0accd_t) ;
+		t0 = pow((Ids/isatacc),MEXPACCD) ;
+		t1 = 1.0 - t0 ;
+		t2 = pow(t1,1.0/MEXPACCD) ;
+		rdbias = rd0/t2 ;
+		rdc_t = RDC*(1.0+KRDC*(Tdev/TNOM-1.0)) ;
+		Rdrain = rdc_t/(W*NF) + rdbias ;
 
-	Vsssat = (VSATS/U0ACC)*LSG ;
-	t0 = V(si,s)/Vsssat ;
-	fsats = t0/pow((1+t0*t0),0.5);
-	t1 = 1.0 - fsats ;
-	Rsource = LSG/(U0ACC*`q*nsx*W*t1) + RSC;	
-//	Drain Side Resistance
-
-	vgvird = VIRVGD - V(trap1) ;
-
-	vgop = 0.5*vgvird + 0.5*sqrt(vgvird*vgvird + 4.0*`ep_psi*`ep_psi);
-	
-	vgon = vgop*ALPHAN/(sqrt(pow(vgop,2.0) + pow(ALPHAN,2.0) ));
-	vgod = vgop*ALPHAD/(sqrt(pow(vgop,2.0) + pow(ALPHAD,2.0) ));
-	
-	Hx = (vgop + Vtv*(1.0-ln(beta*vgon)) - (`gamma0/3.0)*pow(Cg*vgop/`q,2.0/3.0))/(vgop*(1.0+(Vtv/vgod)) + ((2.0*`gamma0)/3.0)*pow(Cg*vgop/`q,2.0/3.0));
-	ndx = (2.0*Vtv*(Cg/`q)*ln(1.0+limexp(vgvirs/(2.0*Vtv))))/((1.0/Hx) + (Cg/(`q * `DOS))*limexp((-1.0*vgvirs)/(2.0*Vtv)));
-
-	Vddsat = (VSATD/U0ACC)*LDG ;
-	t0 = V(d,di)/Vddsat ;
-	$strobe("Vddi=%e",V(d,di));
-	fsatd = t0/pow((1+t0*t0),0.5);
-	$strobe("fsatd=%e",fsatd);
-	t1 = 1.0 - fsatd ;
-	Rdrain = LDG/(U0ACC*`q*ndx*W*t1) + RDC ;
-	$strobe("Rdrain=%e",Rdrain) ;
-
-	end else begin
+        end else begin
 		Rdrain = 1.0e-6 ;
 		Rsource = 1.0e-6 ;
 	end
@@ -725,7 +774,6 @@ analog begin
 //	$strobe("gm=%e",GM);
 	end
 end
-endmodule	
+endmodule
 
-	
-	
+
